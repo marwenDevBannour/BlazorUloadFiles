@@ -1,0 +1,88 @@
+﻿@page "/"
+@using BlazorUploadFiles.Shared
+@inject HttpClient Http;
+@inject IJSRuntime JS
+
+<PageTitle>Index</PageTitle>
+
+<h1>Hello, world!</h1>
+
+Welcome to your new app.
+
+<SurveyPrompt Title="How is Blazor working for you?" />
+
+<InputFile OnChange="@OnInputFileChange" multiple />
+@if(fileNames.Count > 0)
+{
+    <ul>
+      @foreach (var fileName in fileNames)
+        {
+            <li class="text-success">
+                @fileName:@fileName
+                <span>
+                    stored file name:@GetStoredFileName(fileName)
+                </span>
+                <button @onclick="@(() =>  DownloadFile(GetStoredFileName(fileName), fileName))">Dounload</button>
+
+            </li>
+        }
+    </ul>
+   
+}
+@code{
+    private int maxAlloadFiles = int.MaxValue;
+    private long maxFileSize = long.MaxValue;
+    private List<string> fileNames = new();
+    private List<UploadResult> uploadResults = new();
+
+    protected async Task OnInputFileChange(InputFileChangeEventArgs e)
+    {
+        using var content = new MultipartFormDataContent();
+        foreach (var file in e.GetMultipleFiles(maxAlloadFiles))
+        {
+            var fileContent = new StreamContent(file.OpenReadStream(maxFileSize));
+
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType);
+
+            fileNames.Add(file.Name);
+
+            content.Add(content: fileContent,
+                name: "\"files\"",
+                fileName: file.Name);
+        }
+
+        var response = await Http.PostAsync("/api/Documents", content);
+        var newUploadResults = await response.Content.ReadFromJsonAsync<List<UploadResult>>();
+
+        if (newUploadResults is not null)
+
+        {
+            uploadResults = uploadResults.Concat(newUploadResults).ToList();
+        }
+    }
+
+    protected string? GetStoredFileName(string fileName)
+    {
+        var uploadResult =  uploadResults.SingleOrDefault(f => f.FileName == fileName);
+        if (uploadResult is not null)
+            return  uploadResult.StoredFileName;
+
+        return "file not found";
+    }
+
+    protected async Task DownloadFile(string storedFileName, string originalFileName)
+    {
+        var response = await Http.GetAsync($"/api/Documents/{storedFileName}");
+
+        if (!response.IsSuccessStatusCode)
+        {
+            await JS.InvokeVoidAsync("alert", "File not found.");
+        }
+        else
+        {
+            var fileStream = response.Content.ReadAsStream();
+            using var streamRef = new DotNetStreamReference(stream: fileStream);
+            await JS.InvokeVoidAsync("downloadFileFromStream", originalFileName, streamRef);
+        }
+    }
+}
